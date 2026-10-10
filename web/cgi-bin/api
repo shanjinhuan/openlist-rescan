@@ -14,6 +14,7 @@ DATA_DIR="${DATA_DIR:-/data}"
 HISTORY_FILE="${HISTORY_FILE:-$DATA_DIR/scan-history.jsonl}"
 CURRENT_FILE="${CURRENT_FILE:-$DATA_DIR/current-run.json}"
 MEDIA_STATE_FILE="${MEDIA_STATE_FILE:-$DATA_DIR/last-media.json}"
+DIRECTORY_STATE_FILE="${DIRECTORY_STATE_FILE:-$DATA_DIR/directory-state.json}"
 LOCK="${LOCK_FILE:-/tmp/rescan.lock}"
 RESCAN_SCRIPT="/usr/local/bin/rescan.sh"
 
@@ -76,11 +77,15 @@ action_status() {
 	[ -f "$MEDIA_STATE_FILE" ] && MEDIA=$(cat "$MEDIA_STATE_FILE" 2>/dev/null)
 	[ -n "$MEDIA" ] || MEDIA=null
 
+	DIRS=null
+	[ -f "$DIRECTORY_STATE_FILE" ] && DIRS=$(cat "$DIRECTORY_STATE_FILE" 2>/dev/null)
+	[ -n "$DIRS" ] || DIRS=null
+
 	HC=0
 	[ -f "$HISTORY_FILE" ] && HC=$(wc -l < "$HISTORY_FILE" 2>/dev/null | tr -d ' ')
 	[ -n "$HC" ] || HC=0
 
-	out "{\"ok\":true,\"running\":$RUNNING,\"progress\":$PROG,\"current\":$CUR,\"media\":$MEDIA,\"history_count\":$HC,\"now\":\"$(date '+%F %T')\",\"now_ts\":$(date +%s)}"
+	out "{\"ok\":true,\"running\":$RUNNING,\"progress\":$PROG,\"current\":$CUR,\"directories\":$DIRS,\"media\":$MEDIA,\"history_count\":$HC,\"now\":\"$(date '+%F %T')\",\"now_ts\":$(date +%s)}"
 }
 
 action_history() {

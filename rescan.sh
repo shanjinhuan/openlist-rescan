@@ -34,6 +34,7 @@
 HISTORY_FILE="${HISTORY_FILE:-$DATA_DIR/scan-history.jsonl}"
 CURRENT_FILE="${CURRENT_FILE:-$DATA_DIR/current-run.json}"
 MEDIA_STATE_FILE="${MEDIA_STATE_FILE:-$DATA_DIR/last-media.json}"
+DIRECTORY_STATE_FILE="${DIRECTORY_STATE_FILE:-$DATA_DIR/directory-state.json}"
 LOCK="${LOCK_FILE:-/tmp/rescan.lock}"
 MEDIA_SCRIPT="/usr/local/bin/media-refresh.sh"
 
@@ -62,6 +63,9 @@ is_num() { case "$1" in ''|*[!0-9]*) return 1 ;; *) return 0 ;; esac; }
 mkdir -p "$DATA_DIR" 2>/dev/null
 printf '{"status":"running","trigger":"%s","start":"%s","start_ts":%s,"path":"%s","limit":%s}\n' \
   "$TRIGGER" "$START_H" "$START_TS" "$SCAN_PATH" "$SCAN_LIMIT" > "$CURRENT_FILE" 2>/dev/null
+# OpenList 当前接口只保证全局进度；目录级字段若由服务端返回则原样保存，供 UI 展示。
+printf '{"updated":"%s","source":"openlist-progress","path":"%s","current":null,"directories":[]}' \
+  "$START_H" "$SCAN_PATH" > "$DIRECTORY_STATE_FILE" 2>/dev/null
 
 finish() {
   # $1 = ok | timeout | login_fail | media_fail
@@ -122,6 +126,12 @@ while [ "$elapsed" -le "$SCAN_WAIT_MAX" ]; do
   NORM=$(printf '%s' "$PROG" | tr -d ' \n\r')
   OC=$(printf '%s' "$NORM" | sed -n 's/.*"obj_count":\([0-9]*\).*/\1/p')
   is_num "$OC" && OBJ_COUNT=$OC
+  # 不猜测目录状态：仅提取 OpenList 明确返回的 current/path 字段。
+  CUR_DIR=$(printf '%s' "$NORM" | sed -n 's/.*"\(current_path\|current\|path\)":"\([^"]*\)".*/\2/p' | head -n1)
+  if [ -n "$CUR_DIR" ]; then
+    printf '{"updated":"%s","source":"openlist-progress","path":"%s","current":"%s","directories":[]}' \
+      "$(date '+%F %T')" "$SCAN_PATH" "$CUR_DIR" > "$DIRECTORY_STATE_FILE" 2>/dev/null
+  fi
   case "$NORM" in
     *'"is_done":true'*) done_flag=1; log "扫描完成（约 ${elapsed}s）：$PROG"; break ;;
   esac
@@ -134,6 +144,11 @@ if [ "$done_flag" != "1" ]; then
   echo "[$(date '+%F %T')] 等待扫描完成超时（${SCAN_WAIT_MAX}s），本轮不刷新影视（已扫描 $OBJ_COUNT 项）"
   finish timeout
   exit 0
+fi
+
+# 扫描完成时保留最后一次可观测目录；OpenList 未返回目录列表时由 UI 明确提示。
+if [ -f "$DIRECTORY_STATE_FILE" ]; then
+  sed 's/"current":"[^"]*"/"current":null/' "$DIRECTORY_STATE_FILE" > "$DIRECTORY_STATE_FILE.tmp" 2>/dev/null && mv "$DIRECTORY_STATE_FILE.tmp" "$DIRECTORY_STATE_FILE"
 fi
 
 # 5. 刷新飞牛影视媒体库

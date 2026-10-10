@@ -97,6 +97,22 @@
   .meta{display:flex;gap:20px;flex-wrap:wrap;color:var(--muted);font-size:12.5px}
   .meta b{color:var(--text);font-weight:600;font-variant-numeric:tabular-nums}
 
+  .directory-summary{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin-top:16px}
+  .directory-stat{padding:11px 13px;background:var(--card-2);border:1px solid var(--border);border-radius:8px}
+  .directory-stat .label{font-size:11.5px;color:var(--muted)}
+  .directory-stat .value{font-size:19px;font-weight:650;margin-top:2px;font-variant-numeric:tabular-nums}
+  .directory-stat.active .value{color:var(--accent)}
+  .directory-stat.complete .value{color:var(--ok)}
+  .directory-list{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:16px}
+  .directory-group{min-width:0}
+  .directory-group h3{font-size:12px;color:var(--muted);font-weight:600;margin:0 0 8px}
+  .directory-items{margin:0;padding:0;list-style:none;max-height:190px;overflow:auto;border-top:1px solid var(--border)}
+  .directory-items li{padding:8px 10px;border-bottom:1px solid var(--border);font-size:12px;overflow-wrap:anywhere}
+  .directory-items li.active{color:var(--accent);background:var(--accent-soft)}
+  .directory-items li.complete{color:var(--ok)}
+  .directory-note{margin-top:12px;padding:10px 12px;border-radius:8px;background:var(--warn-soft);color:var(--warn);font-size:12px}
+  @media(max-width:640px){.directory-summary{grid-template-columns:1fr 1fr 1fr;gap:6px}.directory-stat{padding:9px}.directory-stat .value{font-size:16px}.directory-list{grid-template-columns:1fr}}
+
   .table-wrap{overflow-x:auto;margin-top:14px}
   table{width:100%;border-collapse:collapse;font-size:13px;min-width:680px}
   th{
@@ -185,6 +201,29 @@
       <span>开始时间 <b id="mStart">—</b></span>
       <span>扫描路径 <b id="mPath">—</b></span>
     </div>
+  </section>
+
+  <section class="card">
+    <div class="row">
+      <h2>目录扫描明细</h2>
+      <span class="muted" id="directorySource">等待扫描数据</span>
+    </div>
+    <div class="directory-summary">
+      <div class="directory-stat active"><div class="label">正在扫描</div><div class="value" id="directoryActive">—</div></div>
+      <div class="directory-stat complete"><div class="label">已扫描目录</div><div class="value" id="directoryComplete">—</div></div>
+      <div class="directory-stat"><div class="label">未扫描目录</div><div class="value" id="directoryPending">—</div></div>
+    </div>
+    <div class="directory-list">
+      <div class="directory-group">
+        <h3>正在扫描 / 已扫描</h3>
+        <ul class="directory-items" id="directoryDone"><li class="empty">暂无目录级数据</li></ul>
+      </div>
+      <div class="directory-group">
+        <h3>未扫描</h3>
+        <ul class="directory-items" id="directoryPendingList"><li class="empty">暂无目录级数据</li></ul>
+      </div>
+    </div>
+    <div class="directory-note" id="directoryNote">OpenList 当前进度接口仅返回全局对象数；如果接口没有返回目录清单，页面不会猜测目录完成状态。</div>
   </section>
 
   <section class="card">
@@ -324,11 +363,84 @@
     }
 
     $("histCount").textContent = fmtNum(s.history_count);
+    renderDirectoryState(s.directories, running);
 
     $("btnTrigger").disabled = running;
     $("btnTrigger").textContent = running ? "扫描进行中…" : "立即触发扫描";
     banner("");
     failed = 0;
+  }
+
+  function esc(value) {
+    return String(value === null || value === undefined ? "" : value)
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;")
+      .replace(/'/g, "&#39;");
+  }
+
+  function asList(value) {
+    if (!Array.isArray(value)) return [];
+    return value.map(function (item) {
+      if (typeof item === "string") return { path: item, status: "pending" };
+      if (!item || typeof item !== "object") return null;
+      return {
+        path: item.path || item.name || item.directory || item.current_path || "",
+        status: item.status || "pending"
+      };
+    }).filter(function (item) { return item && item.path; });
+  }
+
+  function renderDirectoryState(state, running) {
+    var active = state && (state.current || state.current_path);
+    var dirs = state && Array.isArray(state.directories) ? state.directories : [];
+    var done = asList(state && (state.completed || state.done || state.scanned));
+    var pending = asList(state && (state.pending || state.waiting || state.unscanned));
+
+    // Accept a structured directory list when a future OpenList version provides one.
+    if (dirs.length) {
+      done = [];
+      pending = [];
+      dirs.forEach(function (item) {
+        var parsed = typeof item === "string" ? { path: item, status: "pending" } : item;
+        if (!parsed || !parsed.path) return;
+        var status = String(parsed.status || "pending").toLowerCase();
+        if (status === "done" || status === "complete" || status === "completed" || status === "scanned") {
+          done.push({ path: parsed.path, status: "complete" });
+        } else if (status === "running" || status === "active" || status === "current") {
+          active = active || parsed.path;
+        } else {
+          pending.push({ path: parsed.path, status: "pending" });
+        }
+      });
+    }
+
+    var hasDirectoryData = !!active || done.length > 0 || pending.length > 0;
+    $("directoryActive").textContent = active ? "1" : "0";
+    $("directoryComplete").textContent = hasDirectoryData ? fmtNum(done.length) : "—";
+    $("directoryPending").textContent = hasDirectoryData ? fmtNum(pending.length) : "—";
+    $("directorySource").textContent = state && state.source ? "来源：" + state.source : "等待扫描数据";
+
+    var doneItems = [];
+    if (active) doneItems.push('<li class="active">正在扫描：' + esc(active) + "</li>");
+    doneItems = doneItems.concat(done.map(function (item) {
+      return '<li class="complete">' + esc(item.path) + "</li>";
+    }));
+    $("directoryDone").innerHTML = doneItems.length
+      ? doneItems.join("")
+      : '<li class="empty">' + (running ? "尚未返回目录级数据" : "暂无目录级数据") + "</li>";
+    $("directoryPendingList").innerHTML = pending.length
+      ? pending.map(function (item) { return "<li>" + esc(item.path) + "</li>"; }).join("")
+      : '<li class="empty">' + (hasDirectoryData ? "没有待扫描目录" : "暂无目录级数据") + "</li>";
+
+
+
+    if (!hasDirectoryData) {
+      $("directoryNote").textContent = "OpenList 当前进度接口未返回目录队列，仅能显示全局对象数；页面不会根据对象数猜测目录完成状态。";
+    } else {
+      $("directoryNote").textContent = "目录状态来自 OpenList 返回的字段，仅展示接口明确提供的内容。";
+    }
   }
 
   function renderHistory(h) {
