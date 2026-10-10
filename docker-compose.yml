@@ -1,0 +1,19 @@
+# OpenList 定时扫描触发器（常驻版）
+# 内置 cron，每 CRON_SCHEDULE 触发一次 /admin/scan/start。
+# 凭据通过 .env 注入。先复制 .env.example 为 .env 并填好。
+
+services:
+  rescan:
+    build: .
+    image: openlist-rescan:latest
+    container_name: openlist-rescan
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      - SCAN_PATH=/strm
+      - SCAN_LIMIT=3
+      - CRON_SCHEDULE=*/20 * * * *
+      - TZ=Asia/Shanghai
+    # 需要访问 OpenList（内网 192.168.31.37:5245）。
+    # 若想用 127.0.0.1 访问宿主机映射端口，改用 network_mode: host
