@@ -1,6 +1,7 @@
-# OpenList 定时扫描触发器（常驻版）
-# 内置 cron，每 CRON_SCHEDULE 触发一次 /admin/scan/start。
-# 凭据通过 .env 注入。先复制 .env.example 为 .env 并填好。
+# OpenList 定时扫描 + 影视自动刷新 + Web 控制台（单容器常驻）
+#
+# 凭据通过 .env 注入（先复制 .env.example 为 .env 并填好）。
+# 容器内同时跑：busybox httpd（Web UI）与 busybox crond（定时扫描）。
 
 services:
   rescan:
@@ -11,9 +12,27 @@ services:
     env_file:
       - .env
     environment:
+      - TZ=CST-8              # 让日志/历史显示北京时间（不依赖 tzdata）
       - SCAN_PATH=/strm
       - SCAN_LIMIT=3
+      - SCAN_WAIT_MAX=1500    # 等扫描完成的最长秒数
+      - MEDIA_REFRESH_ENABLE=1
+      - MEDIA_MODE=scanall
       - CRON_SCHEDULE=*/20 * * * *
-      - TZ=Asia/Shanghai
-    # 需要访问 OpenList（内网 192.168.31.37:5245）。
-    # 若想用 127.0.0.1 访问宿主机映射端口，改用 network_mode: host
+      - WEB_PORT=8090
+      - DATA_DIR=/data
+    ports:
+      - "8090:8090"           # Web 控制台
+    volumes:
+      - ./data:/data          # 扫描历史 / 当前运行状态
+    # 需要访问宿主机上的 OpenList（5245）与飞牛影视（8005）。
+    # 默认 bridge 网络下用 172.17.0.1 访问宿主机；
+    # 若想用 127.0.0.1，改用 network_mode: host（此时 ports 可去掉）。
+    #
+    # 改了脚本想免重建（开发时方便）：
+    # volumes:
+    #   - ./data:/data
+    #   - ./rescan.sh:/usr/local/bin/rescan.sh:ro
+    #   - ./media-refresh.sh:/usr/local/bin/media-refresh.sh:ro
+    #   - ./entrypoint.sh:/usr/local/bin/entrypoint.sh:ro
+    #   - ./web:/www:ro

@@ -1,0 +1,132 @@
+#!/bin/sh
+# OpenList 扫描控制台 —— CGI 后端（busybox shell，零依赖）
+#
+# 接口：
+#   GET  /cgi-bin/api?action=status    当前扫描进度 + 运行态 + 最近一次媒体库统计
+#   GET  /cgi-bin/api?action=history   历史扫描记录（?limit=50）
+#   POST /cgi-bin/api?action=trigger   手动触发一次扫描（后台执行 rescan.sh）
+#
+# 由 busybox httpd 以 CGI 方式调用，继承容器环境变量。
+
+BASE="${OPENLIST_URL%/}"
+TOKEN_FILE="${TOKEN_FILE:-/tmp/.ol_token}"
+DATA_DIR="${DATA_DIR:-/data}"
+HISTORY_FILE="${HISTORY_FILE:-$DATA_DIR/scan-history.jsonl}"
+CURRENT_FILE="${CURRENT_FILE:-$DATA_DIR/current-run.json}"
+MEDIA_STATE_FILE="${MEDIA_STATE_FILE:-$DATA_DIR/last-media.json}"
+LOCK="${LOCK_FILE:-/tmp/rescan.lock}"
+RESCAN_SCRIPT="/usr/local/bin/rescan.sh"
+
+out() {
+	printf 'Content-Type: application/json; charset=utf-8\nCache-Control: no-store\n\n'
+	printf '%s' "$1"
+}
+
+# 从 QUERY_STRING 取参数（不做 URL 解码，本场景值均为纯字母数字）
+qval() {
+	printf '%s' "${QUERY_STRING:-}" | tr '&' '\n' | sed -n "s/^$1=//p" | head -n1
+}
+
+ol_login() {
+	_lb=$(mktemp)
+	printf '{"username":"%s","password":"%s"}' "$OPENLIST_USERNAME" "$OPENLIST_PASSWORD" > "$_lb"
+	_r=$(wget -q -O - -T 15 "$BASE/api/auth/login" \
+		--header='Content-Type: application/json' --post-file="$_lb" 2>/dev/null)
+	rm -f "$_lb"
+	_t=$(printf '%s' "$_r" | sed -n 's/.*"token"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')
+	if [ -n "$_t" ]; then
+		printf '%s' "$_t" > "$TOKEN_FILE" 2>/dev/null
+	fi
+	printf '%s' "$_t"
+}
+
+ol_progress() {
+	_t=""
+	[ -f "$TOKEN_FILE" ] && _t=$(cat "$TOKEN_FILE" 2>/dev/null)
+	[ -n "$_t" ] || _t=$(ol_login)
+	[ -n "$_t" ] || return 1
+	_r=$(wget -q -O - -T 15 "$BASE/api/admin/scan/progress" --header="Authorization: $_t" 2>/dev/null)
+	case "$_r" in
+		*'"code":200'*) : ;;
+		*)
+			# token 失效或限流 → 重登一次
+			_t=$(ol_login)
+			[ -n "$_t" ] && _r=$(wget -q -O - -T 15 "$BASE/api/admin/scan/progress" \
+				--header="Authorization: $_t" 2>/dev/null)
+			;;
+	esac
+	printf '%s' "$_r"
+}
+
+action_status() {
+	PROG=$(ol_progress)
+	if [ -z "$PROG" ]; then
+		out '{"ok":false,"error":"OpenList 未响应（检查 OPENLIST_URL / 凭据 / 网络）"}'
+		return
+	fi
+
+	RUNNING=false
+	[ -d "$LOCK" ] && RUNNING=true
+
+	CUR=null
+	[ -f "$CURRENT_FILE" ] && CUR=$(cat "$CURRENT_FILE" 2>/dev/null)
+	[ -n "$CUR" ] || CUR=null
+
+	MEDIA=null
+	[ -f "$MEDIA_STATE_FILE" ] && MEDIA=$(cat "$MEDIA_STATE_FILE" 2>/dev/null)
+	[ -n "$MEDIA" ] || MEDIA=null
+
+	HC=0
+	[ -f "$HISTORY_FILE" ] && HC=$(wc -l < "$HISTORY_FILE" 2>/dev/null | tr -d ' ')
+	[ -n "$HC" ] || HC=0
+
+	out "{\"ok\":true,\"running\":$RUNNING,\"progress\":$PROG,\"current\":$CUR,\"media\":$MEDIA,\"history_count\":$HC,\"now\":\"$(date '+%F %T')\",\"now_ts\":$(date +%s)}"
+}
+
+action_history() {
+	if [ ! -f "$HISTORY_FILE" ]; then
+		out '{"ok":true,"items":[]}'
+		return
+	fi
+	LIMIT=$(qval limit)
+	case "$LIMIT" in ''|*[!0-9]*) LIMIT=50 ;; esac
+	BODY=$(awk -v n="$LIMIT" '
+		NF { line[++c] = $0 }
+		END {
+			start = (c > n ? c - n + 1 : 1)
+			printf "{\"ok\":true,\"items\":["
+			for (i = start; i <= c; i++) printf "%s%s", (i > start ? "," : ""), line[i]
+			printf "]}"
+		}' "$HISTORY_FILE")
+	[ -n "$BODY" ] || BODY='{"ok":true,"items":[]}'
+	out "$BODY"
+}
+
+action_trigger() {
+	if [ "${REQUEST_METHOD:-GET}" != "POST" ]; then
+		out '{"ok":false,"error":"请使用 POST 触发"}'
+		return
+	fi
+	if [ -d "$LOCK" ]; then
+		out '{"ok":false,"running":true,"error":"已有扫描任务在执行，请等待本轮结束"}'
+		return
+	fi
+	if [ ! -f "$RESCAN_SCRIPT" ]; then
+		out '{"ok":false,"error":"未找到 rescan.sh"}'
+		return
+	fi
+	(
+		TRIGGER=manual LOG_LEVEL=debug \
+		sh "$RESCAN_SCRIPT" >> "$DATA_DIR/manual-trigger.log" 2>&1 </dev/null
+	) &
+	out '{"ok":true,"message":"已触发扫描，进度稍后自动刷新"}'
+}
+
+case "$(qval action)" in
+	status)  action_status ;;
+	history) action_history ;;
+	trigger) action_trigger ;;
+	*)       out '{"ok":false,"error":"unknown action"}' ;;
+esac
+
+exit 0

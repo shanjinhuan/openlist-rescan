@@ -1,2 +1,8 @@
 .env
 *.log
+data/
+probe-*.sh
+check-web.sh
+test-trigger.sh
+verify-wrapper.sh
+*.zip

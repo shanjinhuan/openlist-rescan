@@ -1,0 +1,415 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>OpenList 扫描控制台</title>
+<style>
+  :root{
+    --bg:#f4f5f7; --card:#ffffff; --card-2:#fafbfc; --border:#e4e7ec;
+    --text:#111827; --muted:#6b7280; --faint:#9ca3af;
+    --accent:#2563eb; --accent-soft:#eff4ff;
+    --ok:#159f5b; --ok-soft:#e8f7ef;
+    --warn:#c2740b; --warn-soft:#fdf3e2;
+    --err:#d64545; --err-soft:#fdecec;
+    --shadow:0 1px 2px rgba(16,24,40,.05), 0 1px 3px rgba(16,24,40,.06);
+    --radius:14px;
+  }
+  @media (prefers-color-scheme: dark){
+    :root{
+      --bg:#0d1017; --card:#151922; --card-2:#1a1f2a; --border:#252b37;
+      --text:#e7eaf0; --muted:#98a2b3; --faint:#6b7585;
+      --accent:#4d84f5; --accent-soft:#17233c;
+      --ok:#38c47c; --ok-soft:#12291f;
+      --warn:#e0a24a; --warn-soft:#2a2113;
+      --err:#ef6b6b; --err-soft:#2c1717;
+      --shadow:0 1px 2px rgba(0,0,0,.4), 0 1px 3px rgba(0,0,0,.3);
+    }
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0}
+  body{
+    background:var(--bg); color:var(--text);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Hiragino Sans GB","Microsoft YaHei",system-ui,sans-serif;
+    font-size:14px; line-height:1.55; -webkit-font-smoothing:antialiased;
+    padding:26px 20px 60px;
+  }
+  .wrap{max-width:1080px;margin:0 auto}
+
+  header{display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;margin-bottom:22px}
+  .brand{display:flex;align-items:center;gap:13px}
+  .logo{
+    width:42px;height:42px;border-radius:12px;flex:0 0 auto;
+    background:linear-gradient(150deg,var(--accent),#7c4dff);
+    color:#fff;display:grid;place-items:center;font-size:19px;font-weight:700;
+    box-shadow:0 4px 14px rgba(59,102,241,.28)
+  }
+  h1{font-size:17px;margin:0;letter-spacing:.2px}
+  .sub{margin:1px 0 0;color:var(--muted);font-size:12.5px}
+
+  .badge{
+    display:inline-flex;align-items:center;gap:7px;
+    padding:6px 13px;border-radius:999px;font-size:12.5px;font-weight:600;
+    border:1px solid var(--border);background:var(--card);color:var(--muted)
+  }
+  .badge .dot{width:7px;height:7px;border-radius:50%;background:var(--faint)}
+  .badge.run{background:var(--accent-soft);border-color:transparent;color:var(--accent)}
+  .badge.run .dot{background:var(--accent);animation:pulse 1.4s ease-in-out infinite}
+  .badge.idle{background:var(--ok-soft);border-color:transparent;color:var(--ok)}
+  .badge.idle .dot{background:var(--ok)}
+  .badge.err{background:var(--err-soft);border-color:transparent;color:var(--err)}
+  .badge.err .dot{background:var(--err)}
+  @keyframes pulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.35;transform:scale(.78)}}
+
+  .card{
+    background:var(--card);border:1px solid var(--border);
+    border-radius:var(--radius);box-shadow:var(--shadow);padding:18px 20px;margin-bottom:16px
+  }
+  .grid{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:16px}
+  @media (max-width:760px){.grid{grid-template-columns:repeat(2,1fr)}}
+  .stat{padding:15px 17px;margin:0}
+  .stat .label{font-size:12.5px;color:var(--muted)}
+  .stat .value{font-size:27px;font-weight:650;letter-spacing:-.4px;margin-top:5px;font-variant-numeric:tabular-nums}
+  .stat .hint{font-size:12px;color:var(--faint);margin-top:3px}
+
+  h2{font-size:14.5px;margin:0;font-weight:650}
+  .row{display:flex;align-items:center;justify-content:space-between;gap:14px;flex-wrap:wrap}
+  .muted{color:var(--muted);font-size:12.5px}
+
+  .actions{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+  .btn{
+    font:inherit;font-size:13px;font-weight:600;cursor:pointer;
+    border-radius:9px;padding:8px 16px;border:1px solid var(--border);
+    background:var(--card-2);color:var(--text);transition:.16s
+  }
+  .btn:hover:not(:disabled){border-color:var(--faint)}
+  .btn.primary{background:var(--accent);border-color:var(--accent);color:#fff;box-shadow:0 2px 8px rgba(37,99,235,.25)}
+  .btn.primary:hover:not(:disabled){filter:brightness(1.07)}
+  .btn:disabled{opacity:.55;cursor:not-allowed}
+  .switch{display:inline-flex;align-items:center;gap:7px;font-size:12.5px;color:var(--muted);cursor:pointer;user-select:none}
+  .switch input{accent-color:var(--accent);width:15px;height:15px;cursor:pointer}
+
+  .bar{height:9px;border-radius:999px;background:var(--card-2);border:1px solid var(--border);overflow:hidden;margin:15px 0 11px;position:relative}
+  .bar-fill{height:100%;width:0;background:linear-gradient(90deg,var(--accent),#7c4dff);border-radius:999px;transition:width .5s ease}
+  .bar.run .bar-fill{width:38%;animation:slide 1.5s ease-in-out infinite}
+  @keyframes slide{0%{margin-left:-38%}100%{margin-left:100%}}
+  .bar.done .bar-fill{width:100%;background:linear-gradient(90deg,var(--ok),#3ec98a)}
+  .meta{display:flex;gap:20px;flex-wrap:wrap;color:var(--muted);font-size:12.5px}
+  .meta b{color:var(--text);font-weight:600;font-variant-numeric:tabular-nums}
+
+  .table-wrap{overflow-x:auto;margin-top:14px}
+  table{width:100%;border-collapse:collapse;font-size:13px;min-width:680px}
+  th{
+    text-align:left;font-weight:600;font-size:12px;color:var(--muted);
+    padding:0 12px 9px 0;border-bottom:1px solid var(--border);white-space:nowrap
+  }
+  td{padding:11px 12px 11px 0;border-bottom:1px solid var(--border);font-variant-numeric:tabular-nums;white-space:nowrap}
+  tr:last-child td{border-bottom:none}
+  tbody tr:hover td{background:var(--card-2)}
+  .empty{text-align:center;color:var(--faint);padding:26px 0!important}
+
+  .tag{display:inline-block;padding:2px 9px;border-radius:6px;font-size:11.5px;font-weight:600}
+  .tag.ok{background:var(--ok-soft);color:var(--ok)}
+  .tag.warn{background:var(--warn-soft);color:var(--warn)}
+  .tag.err{background:var(--err-soft);color:var(--err)}
+  .tag.neutral{background:var(--card-2);color:var(--muted);border:1px solid var(--border)}
+
+  .toast{
+    position:fixed;left:50%;bottom:30px;transform:translate(-50%,16px);
+    background:var(--text);color:var(--bg);padding:10px 20px;border-radius:10px;
+    font-size:13px;font-weight:500;opacity:0;pointer-events:none;transition:.25s;z-index:50;
+    box-shadow:0 8px 24px rgba(0,0,0,.25);max-width:82vw
+  }
+  .toast.show{opacity:1;transform:translate(-50%,0)}
+  .toast.err{background:var(--err);color:#fff}
+
+  .banner{
+    display:none;margin-bottom:16px;padding:12px 16px;border-radius:11px;
+    background:var(--err-soft);color:var(--err);font-size:13px;font-weight:500;
+    border:1px solid transparent
+  }
+  .banner.show{display:block}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <div class="brand">
+      <div class="logo">◎</div>
+      <div>
+        <h1>OpenList 扫描控制台</h1>
+        <p class="sub">openlist-rescan · 扫描 115 网盘并落盘 strm，完成后自动刷新飞牛影视</p>
+      </div>
+    </div>
+    <span class="badge" id="statusBadge"><span class="dot"></span><span id="statusText">连接中…</span></span>
+  </header>
+
+  <div class="banner" id="banner"></div>
+
+  <section class="grid">
+    <div class="card stat">
+      <div class="label">已扫描对象</div>
+      <div class="value" id="objCount">—</div>
+      <div class="hint" id="objHint">等待数据</div>
+    </div>
+    <div class="card stat">
+      <div class="label">本次用时</div>
+      <div class="value" id="elapsed">—</div>
+      <div class="hint" id="elapsedHint">当前没有运行中的扫描</div>
+    </div>
+    <div class="card stat">
+      <div class="label">历史运行</div>
+      <div class="value" id="histCount">—</div>
+      <div class="hint">条已完成记录</div>
+    </div>
+    <div class="card stat">
+      <div class="label">媒体库条目</div>
+      <div class="value" id="mediaTotal">—</div>
+      <div class="hint" id="mediaHint">飞牛影视</div>
+    </div>
+  </section>
+
+  <section class="card">
+    <div class="row">
+      <h2>当前扫描</h2>
+      <div class="actions">
+        <button class="btn primary" id="btnTrigger">立即触发扫描</button>
+        <label class="switch"><input type="checkbox" id="autoRefresh" checked>自动刷新（8s）</label>
+      </div>
+    </div>
+    <div class="bar" id="bar"><div class="bar-fill" id="barFill"></div></div>
+    <div class="meta">
+      <span>状态 <b id="mState">—</b></span>
+      <span>触发方式 <b id="mTrigger">—</b></span>
+      <span>开始时间 <b id="mStart">—</b></span>
+      <span>扫描路径 <b id="mPath">—</b></span>
+    </div>
+  </section>
+
+  <section class="card">
+    <div class="row">
+      <h2>历史扫描记录</h2>
+      <span class="muted" id="histUpdated"></span>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>开始时间</th><th>触发</th><th>用时</th><th>对象数</th>
+            <th>影视刷新</th><th>媒体库</th><th>状态</th>
+          </tr>
+        </thead>
+        <tbody id="histBody">
+          <tr><td colspan="7" class="empty">暂无记录</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+(function () {
+  "use strict";
+  var API = new URLSearchParams(location.search).get("api") || "/cgi-bin/api";
+  var $ = function (id) { return document.getElementById(id); };
+  var lastStatus = null, timer = null, failed = 0;
+
+  function api(action, opts) {
+    return fetch(API + "?action=" + action, opts || { method: "GET", cache: "no-store" })
+      .then(function (r) {
+        if (!r.ok) throw new Error("HTTP " + r.status);
+        return r.json();
+      });
+  }
+
+  function fmtDur(sec) {
+    sec = Math.max(0, Math.round(sec));
+    if (sec < 60) return sec + " 秒";
+    var m = Math.floor(sec / 60), s = sec % 60;
+    if (m < 60) return s ? m + " 分 " + s + " 秒" : m + " 分钟";
+    var h = Math.floor(m / 60);
+    return h + " 小时 " + (m % 60) + " 分";
+  }
+
+  function fmtNum(n) {
+    return (n === null || n === undefined) ? "—" : Number(n).toLocaleString("zh-CN");
+  }
+
+  function relTime(ts) {
+    if (!ts) return "";
+    var d = Math.floor(Date.now() / 1000 - ts);
+    if (d < 60) return "刚刚";
+    if (d < 3600) return Math.floor(d / 60) + " 分钟前";
+    if (d < 86400) return Math.floor(d / 3600) + " 小时前";
+    return Math.floor(d / 86400) + " 天前";
+  }
+
+  var TRIGGER_LABEL = { cron: "定时", manual: "手动", startup: "启动" };
+  var STATUS_LABEL = {
+    ok: ["成功", "ok"], timeout: ["超时", "warn"],
+    login_fail: ["登录失败", "err"], media_fail: ["影视刷新失败", "warn"]
+  };
+
+  function toast(msg, isErr) {
+    var t = $("toast");
+    t.textContent = msg;
+    t.className = "toast show" + (isErr ? " err" : "");
+    clearTimeout(t._h);
+    t._h = setTimeout(function () { t.className = "toast"; }, 2800);
+  }
+
+  function banner(msg) {
+    var b = $("banner");
+    if (msg) { b.textContent = msg; b.className = "banner show"; }
+    else { b.className = "banner"; }
+  }
+
+  function renderStatus(s) {
+    lastStatus = s;
+    var running = !!s.running;
+    var prog = (s.progress && s.progress.data) || {};
+    var obj = prog.obj_count;
+    var isDone = prog.is_done === true;
+
+    // 徽章
+    var badge = $("statusBadge"), txt = $("statusText");
+    if (running || !isDone) {
+      badge.className = "badge run";
+      txt.textContent = running ? "扫描中" : "进行中";
+    } else {
+      badge.className = "badge idle";
+      txt.textContent = "空闲";
+    }
+
+    $("objCount").textContent = fmtNum(obj);
+    $("objHint").textContent = isDone ? "上一轮扫描已完成" : (running ? "扫描进行中…" : "等待触发");
+
+    // 进度条
+    var bar = $("bar");
+    bar.className = "bar" + (running || !isDone ? " run" : (isDone ? " done" : ""));
+
+    // 本次运行信息
+    var cur = s.current;
+    if (cur && cur.start_ts) {
+      var el = s.now_ts - cur.start_ts;
+      $("elapsed").textContent = fmtDur(el);
+      $("elapsedHint").textContent = "运行中 · " + (TRIGGER_LABEL[cur.trigger] || cur.trigger || "cron") + "触发";
+      $("mState").textContent = "运行中";
+      $("mTrigger").textContent = TRIGGER_LABEL[cur.trigger] || cur.trigger || "—";
+      $("mStart").textContent = cur.start || "—";
+      $("mPath").textContent = cur.path || "—";
+    } else {
+      $("elapsed").textContent = "—";
+      $("elapsedHint").textContent = "当前没有运行中的扫描";
+      $("mState").textContent = isDone ? "空闲（上轮已完成）" : "空闲";
+      $("mTrigger").textContent = "—";
+      $("mStart").textContent = "—";
+      $("mPath").textContent = "—";
+    }
+
+    // 媒体库
+    var media = s.media && s.media.data ? s.media.data : null;
+    if (media && typeof media.total === "number") {
+      $("mediaTotal").textContent = fmtNum(media.total);
+      var parts = [];
+      if (media.movie) parts.push("电影 " + media.movie);
+      if (media.tv) parts.push("剧集 " + media.tv);
+      if (media.video) parts.push("视频 " + media.video);
+      if (media.live) parts.push("直播 " + media.live);
+      $("mediaHint").textContent = parts.length ? parts.join(" · ") : "已入库条目总数";
+    }
+
+    $("histCount").textContent = fmtNum(s.history_count);
+
+    $("btnTrigger").disabled = running;
+    $("btnTrigger").textContent = running ? "扫描进行中…" : "立即触发扫描";
+    banner("");
+    failed = 0;
+  }
+
+  function renderHistory(h) {
+    var body = $("histBody");
+    var items = (h.items || []).slice().reverse();
+    if (!items.length) {
+      body.innerHTML = '<tr><td colspan="7" class="empty">暂无记录，触发一次扫描后这里会出现历史</td></tr>';
+      $("histUpdated").textContent = "";
+      return;
+    }
+    var rows = items.map(function (it) {
+      var st = STATUS_LABEL[it.status] || [it.status || "未知", "neutral"];
+      var media = it.media_code === 0 || it.media_code === "0"
+        ? '<span class="tag ok">成功</span>'
+        : (it.media_code ? '<span class="tag err">失败 ' + it.media_code + "</span>" : '<span class="tag neutral">未执行</span>');
+      var total = (it.media_total && Number(it.media_total) > 0) ? fmtNum(it.media_total) : "—";
+      return "<tr>" +
+        "<td>" + (it.start || "—") + ' <span class="muted">' + relTime(it.start_ts) + "</span></td>" +
+        '<td><span class="tag neutral">' + (TRIGGER_LABEL[it.trigger] || it.trigger || "—") + "</span></td>" +
+        "<td>" + fmtDur(it.duration_s || 0) + "</td>" +
+        "<td>" + fmtNum(it.obj_count) + "</td>" +
+        "<td>" + media + "</td>" +
+        "<td>" + total + "</td>" +
+        '<td><span class="tag ' + st[1] + '">' + st[0] + "</span></td>" +
+        "</tr>";
+    }).join("");
+    body.innerHTML = rows;
+    $("histUpdated").textContent = "共 " + items.length + " 条 · 更新于 " + new Date().toLocaleTimeString("zh-CN");
+  }
+
+  function refresh(quiet) {
+    return api("status").then(function (s) {
+      if (!s.ok) throw new Error(s.error || "后端返回异常");
+      renderStatus(s);
+      return api("history").then(renderHistory);
+    }).catch(function (e) {
+      failed++;
+      $("statusBadge").className = "badge err";
+      $("statusText").textContent = "未连接";
+      if (failed >= 2) {
+        banner("无法连接后端：" + e.message + "　（若你是直接打开本地 HTML 文件，请改为访问容器提供的地址 http://<NAS IP>:8090/）");
+      }
+    });
+  }
+
+  $("btnTrigger").addEventListener("click", function () {
+    var btn = $("btnTrigger");
+    btn.disabled = true;
+    btn.textContent = "触发中…";
+    api("trigger", { method: "POST" })
+      .then(function (r) {
+        if (r.ok) { toast("已触发扫描，稍后自动刷新进度"); }
+        else { toast(r.error || "触发失败", true); }
+        setTimeout(function () { refresh(true); }, 2500);
+      })
+      .catch(function (e) {
+        toast("触发失败：" + e.message, true);
+        btn.disabled = false;
+        btn.textContent = "立即触发扫描";
+      });
+  });
+
+  $("autoRefresh").addEventListener("change", function () {
+    if (this.checked) startTimer(); else stopTimer();
+  });
+
+  function startTimer() {
+    stopTimer();
+    timer = setInterval(function () { refresh(true); }, 8000);
+  }
+  function stopTimer() { if (timer) { clearInterval(timer); timer = null; } }
+
+  // 每秒钟本地推进「本次用时」，不必等轮询
+  setInterval(function () {
+    if (!lastStatus || !lastStatus.current || !lastStatus.current.start_ts) return;
+    $("elapsed").textContent = fmtDur(Math.floor(Date.now() / 1000) - lastStatus.current.start_ts);
+  }, 1000);
+
+  refresh();
+  startTimer();
+})();
+</script>
+</body>
+</html>
