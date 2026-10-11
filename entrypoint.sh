@@ -9,6 +9,10 @@ DATA_DIR="${DATA_DIR:-/data}"
 
 mkdir -p /var/spool/cron/crontabs "$DATA_DIR"
 
+# 清理上一次被强杀（SIGKILL，trap 来不及执行）残留的单实例锁，
+# 否则后续 startup / cron 扫描会被永久跳过（表现为"扫描再也不触发"）。
+rm -rf "${LOCK_FILE:-/tmp/rescan.lock}" 2>/dev/null
+
 # cron 里显式带上 TRIGGER=cron，便于 Web UI 区分触发来源
 cat > /var/spool/cron/crontabs/root <<EOF
 $SCHEDULE TRIGGER=cron /usr/local/bin/rescan.sh >> /proc/1/fd/1 2>&1
